@@ -1,0 +1,1 @@
+-keep class com.openlivewallpaper.app.NativeRenderer { native <methods>; }

@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.22.1)
+project(olw LANGUAGES C CXX)
+set(CMAKE_CXX_STANDARD 17)
+add_library(olw SHARED jni.cpp renderer.cpp scene.cpp textures.cpp)
+target_compile_definitions(olw PRIVATE VK_USE_PLATFORM_ANDROID_KHR=1)
+target_compile_options(olw PRIVATE -O2 -fno-exceptions -Wall -Wno-unused-function -Wno-unused-variable)
+target_link_libraries(olw vulkan android log)
+target_link_options(olw PRIVATE -Wl,-z,max-page-size=16384)
