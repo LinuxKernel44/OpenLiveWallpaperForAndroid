@@ -37,6 +37,8 @@ android {
                 storePassword = prop("KEYSTORE_PASSWORD", "storePassword")
                 keyAlias = prop("KEY_ALIAS", "keyAlias")
                 keyPassword = prop("KEY_PASSWORD", "keyPassword")
+                enableV2Signing = true
+                enableV3Signing = true
             }
         }
     }

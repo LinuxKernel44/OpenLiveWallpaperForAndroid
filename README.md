@@ -10,7 +10,7 @@ No clock is drawn: this is a wallpaper, not a clock app.
 
 ## What it does
 - **Vulkan renderer** written in C++ (NDK): procedural terrain, instanced spruce and maple forest, log cabins, a stream with
-  foam, ice and snow, cascaded-style sun shadow map, PBR-textured materials from CC0 photo textures, atmospheric sky with
+  foam, ice and snow, sun shadow map, PBR-textured materials from CC0 photo textures, atmospheric sky with
   clouds, stars, real moon phase, aurora borealis, fog and lightning. Rendered at a reduced internal resolution and upscaled,
   30 fps by default (60 fps option), paused when the screen is off.
 - **Real conditions**: live weather from [Open-Meteo](https://open-meteo.com) (clouds, rain, snow, fog, wind, thunder, snow depth,
