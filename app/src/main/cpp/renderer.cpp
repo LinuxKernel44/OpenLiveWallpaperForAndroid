@@ -47,7 +47,9 @@ public:
     std::vector<VkImageView> scViews;
     std::vector<VkFramebuffer> fbs;
     std::vector<VkSemaphore> renderSems;
-    Img depth, msaaColor;
+    Img depth, msaaColor, offImg[FRAMES];
+    VkExtent2D rext{};
+    float renderScale = 0.65f;
     VkRenderPass mainRP = VK_NULL_HANDLE;
     VkPipeline pLit = VK_NULL_HANDLE, pWater = VK_NULL_HANDLE, pSky = VK_NULL_HANDLE, pPartA = VK_NULL_HANDLE, pPartAdd = VK_NULL_HANDLE;
 
@@ -235,11 +237,11 @@ void Renderer::fillFrame(FrameUBO& u, const float* p, const Camera& cam) {
     sunCol = sunCol * (1.f - 0.85f * std::pow(overcast, 1.3f));
     float shadowStr = (1.f - 0.92f * overcast) * sunFade;
 
-    vec3 moonCol = vec3(0.30f, 0.40f, 0.62f) * (0.05f + 0.55f * illum) * moonUp * (1.f - 0.7f * overcast);
+    vec3 moonCol = vec3(0.34f, 0.45f, 0.70f) * (0.12f + 0.7f * illum) * moonUp * (1.f - 0.7f * overcast);
     moonCol = moonCol * night;
 
     vec3 amb = mix3(zen, hor, 0.45f) * (0.55f + 0.2f * overcast);
-    amb = amb + vec3(0.012f, 0.018f, 0.04f) * night * (0.4f + illum * moonUp * 1.4f);
+    amb = amb + vec3(0.03f, 0.045f, 0.095f) * night * (0.55f + illum * moonUp * 1.2f);
     float snow = clampf(p[P_SNOW], 0, 1);
     vec3 ground = mul3(amb, vec3(0.8f, 0.85f, 0.9f)) * 0.55f + sunCol * std::max(e, 0.f) * (0.10f + 0.18f * snow);
     ground = mix3(ground, ground * vec3(1.0f, 1.04f, 1.12f), snow);
@@ -247,7 +249,7 @@ void Renderer::fillFrame(FrameUBO& u, const float* p, const Camera& cam) {
     vec3 fog = mix3(hor, mix3(amb * 1.2f, hor, 0.4f), 0.3f);
     float fogDensity = 0.00045f + 0.0007f * overcast + 0.0007f * snowfall;
     // exposure
-    float exposure = mixf(1.35f, 0.95f, dayf);
+    float exposure = mixf(1.7f, 0.95f, dayf);
 
     float lampOn = 1.f - smoothstepf(0.0f, 0.28f, e);
     lampOn = std::max(lampOn, overcast * 0.35f * dayf);
@@ -332,8 +334,9 @@ bool Renderer::init() {
     VkSampleCountFlags sup = devProps.limits.framebufferColorSampleCounts & devProps.limits.framebufferDepthSampleCounts;
     samples = VK_SAMPLE_COUNT_1_BIT;
     if (quality >= 2 && (sup & VK_SAMPLE_COUNT_4_BIT)) samples = VK_SAMPLE_COUNT_4_BIT;
-    else if (quality == 1 && (sup & VK_SAMPLE_COUNT_4_BIT)) samples = VK_SAMPLE_COUNT_4_BIT;
+
     shadowSize = quality == 0 ? 1024 : 2048;
+    renderScale = quality == 0 ? 0.5f : (quality == 1 ? 0.65f : 0.85f);
 
     VkCommandPoolCreateInfo pi{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
     pi.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT; pi.queueFamilyIndex = qfam;
@@ -431,7 +434,7 @@ bool Renderer::uploadTextures() {
     sci.magFilter = sci.minFilter = VK_FILTER_LINEAR; sci.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
     sci.addressModeU = sci.addressModeV = sci.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
     sci.maxLod = 12; sci.anisotropyEnable = devProps.limits.maxSamplerAnisotropy >= 4 ? VK_TRUE : VK_FALSE;
-    sci.maxAnisotropy = quality >= 2 ? 8.f : 4.f;
+    sci.maxAnisotropy = quality >= 2 ? 4.f : (quality == 1 ? 2.f : 1.f);
     VK(vkCreateSampler(dev, &sci, nullptr, &texSampler));
 
     const uint32_t mips = 11;
@@ -554,13 +557,13 @@ bool Renderer::createMainRP() {
     ad[0].storeOp = ms ? VK_ATTACHMENT_STORE_OP_DONT_CARE : VK_ATTACHMENT_STORE_OP_STORE;
     ad[0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE; ad[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
     ad[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    ad[0].finalLayout = ms ? VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL : VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    ad[0].finalLayout = ms ? VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL : VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
     ad[1].format = VK_FORMAT_D32_SFLOAT; ad[1].samples = samples; ad[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR; ad[1].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
     ad[1].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE; ad[1].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
     ad[1].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED; ad[1].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
     ad[2].format = scFormat; ad[2].samples = VK_SAMPLE_COUNT_1_BIT; ad[2].loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE; ad[2].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
     ad[2].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE; ad[2].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    ad[2].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED; ad[2].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    ad[2].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED; ad[2].finalLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
     VkAttachmentReference cref{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL}, dref{1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL},
         rref{2, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
     VkSubpassDescription sp{};
@@ -573,8 +576,8 @@ bool Renderer::createMainRP() {
     dep[0].srcAccessMask = 0;
     dep[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
     dep[1].srcSubpass = 0; dep[1].dstSubpass = VK_SUBPASS_EXTERNAL;
-    dep[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT; dep[1].dstStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-    dep[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT; dep[1].dstAccessMask = 0;
+    dep[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT; dep[1].dstStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    dep[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT; dep[1].dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
     VkRenderPassCreateInfo rp{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
     VkAttachmentDescription ms3[3] = {ad[0], ad[1], ad[2]};
     VkAttachmentDescription s2[2] = {ad[0], ad[1]};
@@ -681,7 +684,7 @@ bool Renderer::createSwapchain() {
     if (caps.maxImageCount && imgCount > caps.maxImageCount) imgCount = caps.maxImageCount;
     VkSwapchainCreateInfoKHR si{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
     si.surface = surface; si.minImageCount = imgCount; si.imageFormat = scFormat; si.imageColorSpace = chosen.colorSpace;
-    si.imageExtent = ext; si.imageArrayLayers = 1; si.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    si.imageExtent = ext; si.imageArrayLayers = 1; si.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     si.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE; si.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
     if (!(caps.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR)) si.preTransform = caps.currentTransform;
     si.compositeAlpha = (caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR) ? VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR : VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;
@@ -704,16 +707,20 @@ bool Renderer::createSwapchain() {
         VK(vkCreateSemaphore(dev, &s, nullptr, &renderSems[i]));
     }
     bool msOn = samples != VK_SAMPLE_COUNT_1_BIT;
-    if (!makeImage(depth, ext.width, ext.height, 1, 1, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, samples, VK_IMAGE_ASPECT_DEPTH_BIT, false)) return false;
-    if (msOn && !makeImage(msaaColor, ext.width, ext.height, 1, 1, scFormat, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, samples, VK_IMAGE_ASPECT_COLOR_BIT, false)) return false;
+    rext.width = std::max(16u, (uint32_t)(ext.width * renderScale)) & ~1u;
+    rext.height = std::max(16u, (uint32_t)(ext.height * renderScale)) & ~1u;
+    if (!makeImage(depth, rext.width, rext.height, 1, 1, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, samples, VK_IMAGE_ASPECT_DEPTH_BIT, false)) return false;
+    if (msOn && !makeImage(msaaColor, rext.width, rext.height, 1, 1, scFormat, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, samples, VK_IMAGE_ASPECT_COLOR_BIT, false)) return false;
+    for (int i = 0; i < FRAMES; i++)
+        if (!makeImage(offImg[i], rext.width, rext.height, 1, 1, scFormat, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_SAMPLE_COUNT_1_BIT, VK_IMAGE_ASPECT_COLOR_BIT, false)) return false;
     if (!createMainRP()) return false;
-    fbs.resize(n);
-    for (uint32_t i = 0; i < n; i++) {
+    fbs.resize(FRAMES);
+    for (int i = 0; i < FRAMES; i++) {
         VkImageView at[3];
         VkFramebufferCreateInfo fi{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
-        if (msOn) { at[0] = msaaColor.v; at[1] = depth.v; at[2] = scViews[i]; fi.attachmentCount = 3; }
-        else { at[0] = scViews[i]; at[1] = depth.v; fi.attachmentCount = 2; }
-        fi.renderPass = mainRP; fi.pAttachments = at; fi.width = ext.width; fi.height = ext.height; fi.layers = 1;
+        if (msOn) { at[0] = msaaColor.v; at[1] = depth.v; at[2] = offImg[i].v; fi.attachmentCount = 3; }
+        else { at[0] = offImg[i].v; at[1] = depth.v; fi.attachmentCount = 2; }
+        fi.renderPass = mainRP; fi.pAttachments = at; fi.width = rext.width; fi.height = rext.height; fi.layers = 1;
         VK(vkCreateFramebuffer(dev, &fi, nullptr, &fbs[i]));
     }
     if (!createPipelines()) return false;
@@ -733,7 +740,7 @@ void Renderer::destroySwapchain() {
     VkPipeline* ps[] = {&pLit, &pWater, &pSky, &pPartA, &pPartAdd};
     for (auto p : ps) if (*p) { vkDestroyPipeline(dev, *p, nullptr); *p = VK_NULL_HANDLE; }
     if (mainRP) { vkDestroyRenderPass(dev, mainRP, nullptr); mainRP = VK_NULL_HANDLE; }
-    freeImg(depth); freeImg(msaaColor);
+    freeImg(depth); freeImg(msaaColor); for (int i = 0; i < FRAMES; i++) freeImg(offImg[i]);
     if (sc) { vkDestroySwapchainKHR(dev, sc, nullptr); sc = VK_NULL_HANDLE; }
     if (surface) { vkDestroySurfaceKHR(inst, surface, nullptr); surface = VK_NULL_HANDLE; }
     if (window) { ANativeWindow_release(window); window = nullptr; }
@@ -807,7 +814,7 @@ void Renderer::draw(const float* params, int n) {
 
     // camera
     Camera cam;
-    float aspect = (float)ext.width / (float)ext.height;
+    float aspect = (float)rext.width / (float)rext.height;
     SceneParams sp; memcpy(sp.p, p, sizeof(p));
     // camera from scene
     {
@@ -874,16 +881,18 @@ void Renderer::draw(const float* params, int n) {
     VkClearValue cvs[3];
     cvs[0].color = {{0, 0, 0, 1}}; cvs[1].depthStencil = {0.f, 0}; cvs[2].color = {{0, 0, 0, 1}};
     VkRenderPassBeginInfo rb{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
-    rb.renderPass = mainRP; rb.framebuffer = fbs[idx]; rb.renderArea = {{0, 0}, ext};
+    rb.renderPass = mainRP; rb.framebuffer = fbs[f]; rb.renderArea = {{0, 0}, rext};
     rb.clearValueCount = 3; rb.pClearValues = cvs;
     vkCmdBeginRenderPass(c, &rb, VK_SUBPASS_CONTENTS_INLINE);
-    VkViewport vp{0, 0, (float)ext.width, (float)ext.height, 0, 1};
-    VkRect2D scr{{0, 0}, ext};
+    VkViewport vp{0, 0, (float)rext.width, (float)rext.height, 0, 1};
+    VkRect2D scr{{0, 0}, rext};
     vkCmdSetViewport(c, 0, 1, &vp); vkCmdSetScissor(c, 0, 1, &scr);
     vkCmdBindDescriptorSets(c, VK_PIPELINE_BIND_POINT_GRAPHICS, plLayout, 0, 2, sets, 0, nullptr);
     vkCmdBindPipeline(c, VK_PIPELINE_BIND_POINT_GRAPHICS, pLit);
-    for (auto& d : staticDraws) if (d.mesh != MESH_WATER) drawMesh(d.mesh, sbuf.b, d.firstInstance, d.count);
+    // opaque objects first (front-to-back sorted at build time), the heavy terrain shader last so early-z culls hidden pixels
+    for (auto& d : staticDraws) if (d.mesh != MESH_WATER && d.mesh != MESH_TERRAIN) drawMesh(d.mesh, sbuf.b, d.firstInstance, d.count);
     for (auto& d : dd) drawMesh(d.mesh, dbuf[f].b, d.first, d.count);
+    for (auto& d : staticDraws) if (d.mesh == MESH_TERRAIN) drawMesh(d.mesh, sbuf.b, d.firstInstance, d.count);
     // water
     vkCmdBindPipeline(c, VK_PIPELINE_BIND_POINT_GRAPHICS, pWater);
     for (auto& d : staticDraws) if (d.mesh == MESH_WATER) drawMesh(d.mesh, sbuf.b, d.firstInstance, d.count);
@@ -909,9 +918,25 @@ void Renderer::draw(const float* params, int n) {
     part(pPartAdd, 4, (int)(ffs * nightF * (1.f - p[P_RAIN]) * 70), 1.f, scene.heightAt(0, 30) + 0.8f);
     if (p[P_EVENT] >= 1.f && (((int)(p[P_EVENT] + 0.5f)) & (EV_FIREWORKS)) && nightF > 0.4f) part(pPartAdd, 5, 4 * 70, 1.f, 0);
     vkCmdEndRenderPass(c);
+    // upscale the reduced-resolution frame into the swapchain image
+    {
+        VkImageMemoryBarrier b1{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+        b1.image = scImages[idx]; b1.srcQueueFamilyIndex = b1.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b1.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        b1.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED; b1.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL; b1.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        vkCmdPipelineBarrier(c, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &b1);
+        VkImageBlit bl{};
+        bl.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}; bl.srcOffsets[1] = {(int32_t)rext.width, (int32_t)rext.height, 1};
+        bl.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}; bl.dstOffsets[1] = {(int32_t)ext.width, (int32_t)ext.height, 1};
+        vkCmdBlitImage(c, offImg[f].i, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, scImages[idx], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &bl, VK_FILTER_LINEAR);
+        VkImageMemoryBarrier b2 = b1;
+        b2.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL; b2.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+        b2.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT; b2.dstAccessMask = 0;
+        vkCmdPipelineBarrier(c, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 1, &b2);
+    }
     vkEndCommandBuffer(c);
 
-    VkPipelineStageFlags wait = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    VkPipelineStageFlags wait = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT;
     VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
     si.waitSemaphoreCount = 1; si.pWaitSemaphores = &acquireSems[f]; si.pWaitDstStageMask = &wait;
     si.commandBufferCount = 1; si.pCommandBuffers = &c; si.signalSemaphoreCount = 1; si.pSignalSemaphores = &renderSems[idx];

@@ -11,8 +11,6 @@ class LiveWallpaperService : WallpaperService() {
     inner class SceneEngine : Engine() {
         private lateinit var prefs: Prefs
         private var driver: SceneDriver? = null
-        private var fixedW = -1
-        private var fixedH = -1
 
         override fun onCreate(surfaceHolder: SurfaceHolder) {
             super.onCreate(surfaceHolder)
@@ -24,15 +22,7 @@ class LiveWallpaperService : WallpaperService() {
         override fun onSurfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
             super.onSurfaceChanged(holder, format, width, height)
             val d = driver ?: return
-            val scale = SceneDriver.resolutionScale(d.quality)
-            // Render at reduced resolution and let the compositor upscale: big battery and GPU win.
-            if (width == fixedW && height == fixedH) {
-                d.setSurface(holder.surface, width, height)
-                return
-            }
-            fixedW = (width * scale).toInt().coerceAtLeast(2)
-            fixedH = (height * scale).toInt().coerceAtLeast(2)
-            holder.setFixedSize(fixedW, fixedH)
+            d.setSurface(holder.surface, width, height)
         }
 
         override fun onSurfaceDestroyed(holder: SurfaceHolder) {

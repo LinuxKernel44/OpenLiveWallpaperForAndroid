@@ -28,8 +28,6 @@ class MainActivity : ComponentActivity() {
     private lateinit var prefs: Prefs
     private lateinit var driver: SceneDriver
     private lateinit var weather: WeatherRepository
-    private var fixedW = -1
-    private var fixedH = -1
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -55,12 +53,9 @@ class MainActivity : ComponentActivity() {
                         holder.addCallback(object : SurfaceHolder.Callback {
                             override fun surfaceCreated(h: SurfaceHolder) {}
                             override fun surfaceChanged(h: SurfaceHolder, f: Int, w: Int, hh: Int) {
-                                if (w == fixedW && hh == fixedH) { driver.setSurface(h.surface, w, hh); return }
-                                val sc = SceneDriver.resolutionScale(driver.quality)
-                                fixedW = (w * sc).toInt().coerceAtLeast(2); fixedH = (hh * sc).toInt().coerceAtLeast(2)
-                                h.setFixedSize(fixedW, fixedH)
+                                driver.setSurface(h.surface, w, hh)
                             }
-                            override fun surfaceDestroyed(h: SurfaceHolder) { driver.setSurface(null, 0, 0); fixedW = -1; fixedH = -1 }
+                            override fun surfaceDestroyed(h: SurfaceHolder) { driver.setSurface(null, 0, 0) }
                         })
                     }
                 },

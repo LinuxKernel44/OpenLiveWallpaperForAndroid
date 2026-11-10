@@ -36,10 +36,10 @@ float shadowAt(vec3 p, vec3 N) {
     if (edge <= 0.0) return 1.0;
     float ts = 1.0 / 2048.0;
     float s = 0.0;
-    for (int y = -1; y <= 1; y++)
-        for (int x = -1; x <= 1; x++)
-            s += texture(uShadow, vec3(sc.xy + vec2(x, y) * ts * 1.3, sc.z - 0.0012));
-    return mix(1.0, s / 9.0, edge);
+    for (int y = 0; y < 2; y++)
+        for (int x = 0; x < 2; x++)
+            s += texture(uShadow, vec3(sc.xy + (vec2(x, y) - 0.5) * ts * 1.6, sc.z - 0.0012));
+    return mix(1.0, s * 0.25, edge);
 }
 
 struct Surf { vec3 alb; vec3 N; float rough; float spec; float emis; float snow; };
@@ -61,65 +61,69 @@ Surf terrainSurf(vec3 p, vec3 Ng, float forest, float wet, float dist) {
     vec2 uv = p.xz;
     float slope = 1.0 - Ng.y;
     float macro = 0.6 + 0.8 * fbm3(p.xz * 0.05 + 11.0);
-    float near = 1.0 - smoothstep(60.0, 300.0, dist);
+    float near = 1.0 - smoothstep(40.0, 170.0, dist);
 
-    float rockW = smoothstep(0.22, 0.42, slope + (fbm3(p.xz * 0.2) - 0.5) * 0.15);
+    float rockW = smoothstep(0.22, 0.42, slope + (vnoise(p.xz * 0.2) - 0.5) * 0.2);
     float altRock = smoothstep(95.0, 190.0, p.y);
     rockW = max(rockW, altRock * 0.8);
     float gravelW = smoothstep(0.55, 0.9, wet);
     float forestW = smoothstep(0.35, 0.8, forest);
-
-    vec3 grassA = sAlb(1, uv * 0.45);
-    vec3 dry = vec3(0.50, 0.42, 0.26) * (0.6 + grassA.g);
-    float gpatch = fbm3(p.xz * 0.35);
-    vec3 grassG = grassA * mix(vec3(0.55, 0.66, 0.3), vec3(0.78, 0.8, 0.38), gpatch);
-    vec3 grassC = mix(dry, grassG, green);
-    grassC = mix(grassC, grassC * vec3(1.35, 0.9, 0.45) + vec3(0.06, 0.03, 0.0), autumn * 0.8);
-    vec3 forA = sAlb(2, uv * 0.35);
-    vec3 leaves = sAlb(8, uv * 0.4);
-    forA = mix(forA, leaves * vec3(1.1, 0.95, 0.8), autumn * 0.7);
-    vec3 rockA = sAlb(3, uv * 0.25 + p.y * 0.06);
-    vec3 mudA = sAlb(9, uv * 0.4);
-    vec3 gravA = sAlb(7, uv * 0.8);
-
-    vec3 base = mix(grassC, forA * 0.8, forestW);
     float springness = smoothstep(1.6, 0.4, abs(season - 1.0));
-    base = mix(base, mudA * 0.8, clamp(springness * (1.0 - green) * 0.55 + wet * 0.25, 0.0, 0.7));
-    base = mix(base, gravA, gravelW);
-    base = mix(base, rockA, rockW);
-    vec3 nrm = Ng;
-    float nw = 0.0;
-    vec3 tn = vec3(0, 0, 1);
-    if (near > 0.01) {
-        vec3 tg = sNrm(1, uv * 0.45);
-        vec3 tf = sNrm(2, uv * 0.35);
-        vec3 tr = sNrm(3, uv * 0.25 + p.y * 0.06);
-        vec3 tgr = sNrm(7, uv * 0.8);
-        tn = mix(tg, tf, forestW);
-        tn = mix(tn, tgr, gravelW);
-        tn = mix(tn, tr, rockW);
-        nrm = perturb(Ng, p, uv, tn, 0.8 * near);
-    }
-    base *= macro;
+    float mudW = clamp(springness * (1.0 - green) * 0.55 + wet * 0.25, 0.0, 0.7);
 
-    // far forest canopy tint so distant slopes read as spruce forest
-    float farF = smoothstep(90.0, 260.0, dist) * smoothstep(0.25, 0.7, forest) * (1.0 - rockW) * (1.0 - smoothstep(130.0, 230.0, p.y));
-    float cn = fbm3(p.xz * 0.18);
-    vec3 canopy = mix(vec3(0.014, 0.034, 0.02), vec3(0.03, 0.06, 0.035), cn) * (0.7 + 0.6 * vnoise(p.xz * 0.9));
-    canopy = mix(canopy, canopy * vec3(1.6, 1.0, 0.5), autumn * 0.35);
-    base = mix(base, canopy, farF * 0.92);
-
-    // snow
+    // approximate snow coverage first so fully snowy pixels skip the ground layers
     float coverNoise = fbm3(p.xz * 0.12 + 3.1);
     float cov = snowCover * 1.35 - 0.25 * coverNoise - forestW * 0.12 * (1.0 - snowCover);
     cov += smoothstep(40.0, 160.0, p.y) * 0.25 * snowCover;
     cov -= wet * (1.0 - snowCover) * 0.5;
     float sm = clamp(cov * 2.2, 0.0, 1.0) * smoothstep(0.1, 0.45, Ng.y + (1.0 - rockW) * 0.15);
     sm *= 1.0 - gravelW * 0.4 * (1.0 - snowCover * 0.7);
-    vec3 snowA = sAlb(0, uv * 0.3) * vec3(1.0, 1.02, 1.08);
-    vec3 snowN = near > 0.01 ? sNrm(0, uv * 0.3) : vec3(0, 0, 1);
-    base = mix(base, mix(snowA, vec3(0.8, 0.84, 0.9), 0.4) * 1.05, sm);
-    nrm = normalize(mix(nrm, perturb(Ng, p, uv, snowN, 0.5 * near), sm * 0.7));
+
+    vec3 base = vec3(0.0);
+    float wsum = 0.0;
+    vec3 tn = vec3(0, 0, 1);
+    float groundW = 1.0 - sm;
+    float wGrass = (1.0 - forestW) * (1.0 - gravelW) * (1.0 - rockW);
+    float wFor = forestW * (1.0 - gravelW) * (1.0 - rockW);
+    float wGrav = gravelW * (1.0 - rockW);
+    float wRock = rockW;
+    float wMud = mudW * (wGrass + wFor);
+    if (groundW > 0.02) {
+        if (wGrass > 0.02) {
+            vec3 grassA = sAlb(1, uv * 0.45);
+            float gpatch = vnoise(p.xz * 0.35);
+            vec3 grassG = grassA * mix(vec3(0.55, 0.66, 0.3), vec3(0.78, 0.8, 0.38), gpatch);
+            vec3 dry = vec3(0.50, 0.42, 0.26) * (0.6 + grassA.g);
+            vec3 grassC = mix(dry, grassG, green);
+            grassC = mix(grassC, grassC * vec3(1.35, 0.9, 0.45) + vec3(0.06, 0.03, 0.0), autumn * 0.8);
+            base += grassC * wGrass; if (near > 0.01) tn += sNrm(1, uv * 0.45) * wGrass * 0.0 + (sNrm(1, uv * 0.45) - vec3(0, 0, 1)) * wGrass;
+        }
+        if (wFor > 0.02) {
+            vec3 forA = sAlb(2, uv * 0.35);
+            if (autumn > 0.01) forA = mix(forA, sAlb(8, uv * 0.4) * vec3(1.1, 0.95, 0.8), autumn * 0.7);
+            base += forA * 0.8 * wFor; if (near > 0.01) tn += (sNrm(2, uv * 0.35) - vec3(0, 0, 1)) * wFor;
+        }
+        if (wGrav > 0.02) { base += sAlb(7, uv * 0.8) * wGrav; if (near > 0.01) tn += (sNrm(7, uv * 0.8) - vec3(0, 0, 1)) * wGrav; }
+        if (wRock > 0.02) { base += sAlb(3, uv * 0.25 + p.y * 0.06) * wRock; if (near > 0.01) tn += (sNrm(3, uv * 0.25 + p.y * 0.06) - vec3(0, 0, 1)) * wRock; }
+        if (wMud > 0.02) base = mix(base, sAlb(9, uv * 0.4) * 0.8, wMud / max(wGrass + wFor + wGrav + wRock, 0.01) * 0.8);
+    }
+    vec3 nrm = Ng;
+    if (near > 0.01 && groundW > 0.02) nrm = perturb(Ng, p, uv, normalize(tn), 0.8 * near);
+    base *= macro;
+
+    // far forest canopy tint so distant slopes read as spruce forest
+    float farF = smoothstep(90.0, 260.0, dist) * smoothstep(0.25, 0.7, forest) * (1.0 - rockW) * (1.0 - smoothstep(130.0, 230.0, p.y));
+    float cn = vnoise(p.xz * 0.18);
+    vec3 canopy = mix(vec3(0.014, 0.034, 0.02), vec3(0.03, 0.06, 0.035), cn) * (0.7 + 0.6 * vnoise(p.xz * 0.9));
+    canopy = mix(canopy, canopy * vec3(1.6, 1.0, 0.5), autumn * 0.35);
+    base = mix(base, canopy, farF * 0.92);
+
+    // snow
+    if (sm > 0.02) {
+        vec3 snowA = sAlb(0, uv * 0.3) * vec3(1.0, 1.02, 1.08);
+        base = mix(base, mix(snowA, vec3(0.8, 0.84, 0.9), 0.4) * 1.05, sm);
+        if (near > 0.01) nrm = normalize(mix(nrm, perturb(Ng, p, uv, sNrm(0, uv * 0.3), 0.5 * near), sm * 0.7));
+    }
     // distant canopy still dusted white in winter
     base = mix(base, vec3(0.45, 0.5, 0.56), farF * snowCover * 0.55 * (1.0 - sm));
     s.alb = base;
@@ -257,7 +261,8 @@ void main() {
     // dynamic point lights (cabin windows, lanterns, campfire)
     for (int i = 0; i < 12; i++) {
         vec4 lp = F.lightPos[i];
-        if (lp.w <= 0.0) continue;
+        if (lp.w <= 0.0) break;
+        if (F.lightCol[i].a < 0.02) continue;
         vec3 d = lp.xyz - vPos;
         float r = length(d);
         if (r > lp.w) continue;

@@ -116,7 +116,7 @@ void main() {
         float hue = hash11(float(b) * 2.2 + burst);
         vec3 fc = hue < 0.33 ? vec3(1.0, 0.25, 0.2) : (hue < 0.66 ? vec3(0.3, 0.6, 1.0) : vec3(1.0, 0.8, 0.25));
         if (hs > 0.85) fc = vec3(1.0);
-        size = vec2(1.6 + fade);
+        size = vec2(3.2 + 1.5 * fade);
         col = vec4(fc * 3.0, fade * fade);
         float aOn = step(0.5, pc.a) ;
         col.a *= aOn;

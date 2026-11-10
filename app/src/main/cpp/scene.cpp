@@ -1,6 +1,7 @@
 // Procedural world: terrain, forest, cabins, stream, props; per-frame dynamic content (fauna, people, events).
 #include <cstring>
 #include <cmath>
+#include <algorithm>
 #include "common.h"
 
 namespace {
@@ -655,6 +656,12 @@ void Scene::build(int quality) {
         statics[mesh].insert(statics[mesh].end(), rest.begin(), rest.end());
         shadowCaster[mesh] = true;
     };
+    // front-to-back order from the (almost static) camera: early-z then kills hidden overdraw
+    auto camDist = [&](const Instance& a) { float dx = a.model[12] - camP.x, dz = a.model[14] - camP.z; return dx * dx + dz * dz; };
+    auto byDist = [&](const Instance& a, const Instance& b) { return camDist(a) < camDist(b); };
+    std::sort(firShNear.begin(), firShNear.end(), byDist); std::sort(firNear.begin(), firNear.end(), byDist);
+    std::sort(firShMid.begin(), firShMid.end(), byDist); std::sort(firMid.begin(), firMid.end(), byDist);
+    std::sort(firFar.begin(), firFar.end(), byDist);
     merge(MESH_FIR_NEAR, firShNear, firNear);
     merge(MESH_FIR_MID, firShMid, firMid);
     statics[MESH_FIR_FAR] = firFar;
